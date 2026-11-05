@@ -108,6 +108,7 @@ footer{color:var(--muted);font-size:12px;text-align:center;padding:20px}
     <button data-v="report">Verslag</button>
     <button data-v="rules">Spelregels</button>
   </nav>
+  <button class="btn sm" id="wipeBtn" title="Spel wissen">🗑 Wissen</button>
   <div class="lang" id="lang"><button data-l="nl">NL</button><button data-l="en">EN</button></div>
 </div></header>
 <main class="wrap" id="app"></main>
@@ -133,13 +134,14 @@ const usedNums = () => [...S.history.map(h=>h.n), ...(S.current?[S.current.n]:[]
 const target = () => S.players.length * S.roundsPerPlayer;
 
 function go(v){stopLive();if(v!=='report')S.repView=0;view=v;render();window.scrollTo(0,0)}
+document.getElementById('wipeBtn').onclick=()=>go('wipe');
 document.getElementById('lang').addEventListener('click',e=>{const b=e.target.closest('button');if(b){S.lang=b.dataset.l;save();render()}});
 document.getElementById('nav').addEventListener('click',e=>{const b=e.target.closest('button');if(b)go(b.dataset.v)});
 
 function render(){
   document.querySelectorAll('#nav button').forEach(b=>b.classList.toggle('on',b.dataset.v===view));
   document.querySelectorAll('#lang button').forEach(b=>b.classList.toggle('on',b.dataset.l===S.lang));
-  ({setup:rSetup,play:rPlay,results:rResults,library:rLibrary,rules:rRules,report:rReport})[view]();
+  ({setup:rSetup,play:rPlay,results:rResults,library:rLibrary,rules:rRules,report:rReport,wipe:rWipe})[view]();
 }
 
 /* ---------- SETUP ---------- */
@@ -163,7 +165,7 @@ function rSetup(){
   </div>
   <div class="row">
     <button class="btn primary" id="startBtn">Opslaan en spelen</button>
-    ${S.history.length||S.current?'<button class="btn ghost" id="resetBtn">Nieuw spel (wist alles)</button>':''}
+    <button class="btn ghost" onclick="go('wipe')">🗑 Spel wissen…</button>
   </div>`;
   $('#addP').onclick=()=>{const l=$('#plist');if(l.children.length<5)l.insertAdjacentHTML('beforeend',pRow('',l.children.length))};
   $('#startBtn').onclick=()=>{
@@ -750,6 +752,35 @@ function bindAI(p){
   };
 }
 
+/* ---------- WISSEN ---------- */
+function rWipe(){
+  const hasKey=(()=>{try{return !!localStorage.getItem(AIKEY)}catch(e){return false}})();
+  const last=S.history[S.history.length-1];
+  const opts=[
+    S.current&&{id:'cur',t:`Huidig dilemma (${S.current.n}) annuleren`,d:'Het dilemma dat nu bezig is verdwijnt; de dilemmahouder blijft aan de beurt.'},
+    last&&{id:'last',t:`Laatst gespeelde dilemma (${last.n}) verwijderen`,d:`Haalt de laatste ronde weg; ${esc(last.holder)} wordt weer dilemmahouder.`},
+    {id:'game',t:'Spel opnieuw beginnen, spelers behouden',d:'Wist alle rondes, keuzes, transcripties, observaties en verslagen. De namen blijven staan en de dilemma\'s worden opnieuw verdeeld.'},
+    {id:'all',t:'Alles wissen',d:'Wist alles, ook de spelers. De app is daarna helemaal leeg.'},
+    hasKey&&{id:'key',t:'Opgeslagen API-sleutel verwijderen',d:'Verwijdert alleen de Anthropic-sleutel van dit apparaat.'},
+  ].filter(Boolean);
+  $('#app').innerHTML=`<div class="card"><h1>Wissen</h1>
+    <p class="muted">Kies wat je wilt wissen. Tip: maak eerst een back-up via Resultaten → JSON downloaden.</p>
+    ${opts.map(o=>`<div class="reveal" style="margin-top:12px"><div class="row" style="justify-content:space-between;gap:12px">
+      <div style="flex:1;min-width:220px"><b>${o.t}</b><div class="small muted">${o.d}</div></div>
+      <button class="btn sm" data-w="${o.id}">Wissen</button></div></div>`).join('')}
+    <p class="small" id="wipeMsg" style="color:var(--accent);margin-top:14px"></p></div>`;
+  document.querySelectorAll('[data-w]').forEach(b=>b.onclick=()=>{
+    if(!b.dataset.c){document.querySelectorAll('[data-w]').forEach(x=>{delete x.dataset.c;x.textContent='Wissen';x.classList.remove('primary')});
+      b.dataset.c=1;b.textContent='Zeker weten? Klik nogmaals';b.classList.add('primary');return}
+    const id=b.dataset.w;stopLive();let msg='';
+    if(id==='cur'){S.current=null;msg='Huidig dilemma geannuleerd.'}
+    if(id==='last'){const h=S.history.pop();S.holderIdx=Math.max(0,S.players.indexOf(h.holder));S.plan[h.holder]=[h.n,...(S.plan[h.holder]||[])];msg=`Dilemma ${h.n} verwijderd.`}
+    if(id==='game'){const keep={players:S.players,roundsPerPlayer:S.roundsPerPlayer,lang:S.lang};S=Object.assign(fresh(),keep);dealPlan();msg='Spel gewist. De spelers zijn behouden en de dilemma\'s zijn opnieuw verdeeld.'}
+    if(id==='all'){const l=S.lang;S=fresh();S.lang=l;msg='Alles gewist.'}
+    if(id==='key'){try{localStorage.removeItem(AIKEY)}catch(e){}msg='API-sleutel verwijderd.'}
+    ui={picker:null,revealIdx:0,timer:null,timerEnd:0};save();rWipe();$('#wipeMsg').textContent='✓ '+msg;
+  });
+}
 /* ---------- RULES ---------- */
 function rRules(){
   $('#app').innerHTML=`<div class="card"><h1>Spelregels</h1>
