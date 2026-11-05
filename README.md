@@ -29,3 +29,11 @@ Onder **Verslag** kies je een speler. De app schrijft per onderdeel automatisch 
 - **B**: welke keuzes je herzag, wie je overtuigde en met welk argument.
 
 Medespelers vullen hun observatie over jou direct in (**C**). Jij vult je eigen reflectie aan en de casus St. Bernold's (**D**). Daarna klik je op **Verslag bekijken** en kies je **Afdrukken / PDF** of **Download als Word**.
+
+## Opnemen, transcriberen en AI-schrijfhulp
+- **Tijdens het spelen (stap 5, Discussie):** vink toestemming aan en klik op **🎙 Live transcriberen**. Dit werkt in Chrome en Edge; de audio gaat daarbij naar de spraakdienst van Google of Microsoft. Je kunt ook een opname (telefoon-memo, Teams-opname) uploaden via **📁 Audiobestand transcriberen**.
+- **Audiobestand transcriberen** gebruikt Whisper en draait volledig in je eigen browser, er gaat niets naar een server. De eerste keer wordt het model gedownload (enkele honderden MB). Op een laptop zonder snelle grafische kaart duurt het transcriberen ongeveer even lang als de opname zelf, of langer.
+- **Onder Verslag:** de transcripties per dilemma en van de hele sessie zijn te bewerken. De **AI-schrijfhulp** maakt er een gestructureerd concept (A–D) van:
+  - **Route 1 (gratis):** kopieer de opdracht, plak hem in claude.ai, plak het antwoord terug en klik op **Overnemen in verslag**.
+  - **Route 2:** met een eigen Anthropic API-sleutel genereer je het concept direct in de app.
+- Vraag altijd toestemming aan je medespelers voordat je opneemt. Controleer het AI-concept en maak het je eigen.

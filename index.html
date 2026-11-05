@@ -69,6 +69,7 @@ button.opt:hover{border-color:var(--accent)}
 .let{flex:none;width:30px;height:30px;border-radius:9px;display:grid;place-items:center;font-weight:700;color:#fff}
 .lA{background:var(--A)}.lB{background:var(--B)}.lC{background:var(--C)}.lD{background:var(--D)}
 .players{display:flex;gap:8px;flex-wrap:wrap}
+.txw{border:1px dashed var(--line);border-radius:12px;padding:12px;margin-top:10px}
 .pchip{padding:7px 12px;border-radius:10px;border:1px solid var(--line);background:var(--card);font:inherit;font-size:14px;cursor:pointer;color:var(--ink)}
 .pchip.done{background:var(--accent-soft);border-color:var(--accent);color:var(--accent)}
 .pchip.holder::after{content:" ★";color:var(--warn)}
@@ -131,7 +132,7 @@ const holder = () => S.players[S.holderIdx % S.players.length];
 const usedNums = () => [...S.history.map(h=>h.n), ...(S.current?[S.current.n]:[])];
 const target = () => S.players.length * S.roundsPerPlayer;
 
-function go(v){if(v!=='report')S.repView=0;view=v;render();window.scrollTo(0,0)}
+function go(v){stopLive();if(v!=='report')S.repView=0;view=v;render();window.scrollTo(0,0)}
 document.getElementById('lang').addEventListener('click',e=>{const b=e.target.closest('button');if(b){S.lang=b.dataset.l;save();render()}});
 document.getElementById('nav').addEventListener('click',e=>{const b=e.target.closest('button');if(b)go(b.dataset.v)});
 
@@ -280,6 +281,7 @@ function pDiscuss(head){
      <button class="btn" id="tgo">Start timer</button></div>
    <label class="small muted" style="display:block;margin-top:14px">Notities van de discussie (gedeeld)</label>
    <textarea id="notes">${esc(c.notes||'')}</textarea>
+   <div style="margin-top:14px">${txWidget('cur','🎙 Opname en transcriptie van deze discussie')}</div>
    ${distBlock(c.choices)}
    <div class="row" style="margin-top:14px"><button class="btn primary" id="toA">Naar de beoordeling</button></div>
   </div>`;
@@ -291,7 +293,8 @@ function pDiscuss(head){
     ui.timer=setInterval(()=>{const el=$('#clock');if(!el){clearInterval(ui.timer);ui.timer=null;return}
       const s=Math.max(0,Math.round((ui.timerEnd-Date.now())/1000));el.textContent=fmt(s);if(!s){clearInterval(ui.timer);ui.timer=null;el.style.color='var(--warn)'}},250);
   };
-  $('#toA').onclick=()=>{clearInterval(ui.timer);ui.timer=null;c.step=4;save();render()};
+  bindTx('cur',()=>c.transcript,v=>{c.transcript=v});
+  $('#toA').onclick=()=>{stopLive();clearInterval(ui.timer);ui.timer=null;c.step=4;save();render()};
 }
 function pAssess(head){
   const c=S.current, others=S.players;
@@ -320,7 +323,7 @@ function pAssess(head){
   });
   $('#fin').onclick=()=>{
     S.players.forEach(p=>{c.assess[p]=c.assess[p]||{};c.assess[p].final=c.assess[p].final||c.choices[p]});
-    S.history.push({n:c.n,holder:c.holder,choices:c.choices,motiv:c.motiv,notes:c.notes||'',assess:c.assess,at:new Date().toISOString()});
+    S.history.push({n:c.n,holder:c.holder,choices:c.choices,motiv:c.motiv,notes:c.notes||'',transcript:c.transcript||'',assess:c.assess,at:new Date().toISOString()});
     S.current=null;S.holderIdx=(S.holderIdx+1)%S.players.length;save();render();
   };
 }
@@ -458,6 +461,12 @@ function rReport(){
       <input type="text" data-r="date" placeholder="Datum gespeeld" value="${esc(R.date||'')}">
     </div></div>
 
+  <div class="card"><h2>🎙 Transcripties</h2>
+    <p class="muted small">Opnames van de discussies per dilemma (tijdens het spelen gemaakt bij stap 5, of hier achteraf toegevoegd) en eventueel van de hele sessie, bijvoorbeeld een Teams-opname. <b>Live transcriberen</b> gebruikt de spraakherkenning van je browser; de audio gaat daarbij naar Google of Microsoft. <b>Audiobestand transcriberen</b> draait volledig in je eigen browser (Whisper). Eerste keer: model downloaden. Duurt ongeveer even lang als de opname zelf.</p>
+    ${S.history.map((h,i)=>`<details ${h.transcript?'':''}><summary class="small" style="cursor:pointer;margin-top:8px">Dilemma ${h.n} · houder ${esc(h.holder)} · ${h.transcript?Math.round(h.transcript.split(/\s+/).length)+' woorden':'nog geen transcriptie'}</summary>${txWidget('h'+i,'Discussie dilemma '+h.n)}</details>`).join('')}
+    <details><summary class="small" style="cursor:pointer;margin-top:8px">Hele sessie · ${S.sessionTx?S.sessionTx.split(/\s+/).length+' woorden':'nog geen transcriptie'}</summary>${txWidget('session','Opname van de hele sessie')}</details>
+  </div>
+  ${aiCard(p)}
   <div class="card"><h2>A · Hoe ga je om met dilemma's? Welk patroon zie je?</h2>
     <p class="muted small">Waardeer je iedere medewerker gelijk? In hoeverre ga je voor het welzijn van de patiënt of het maatschappelijk belang, ten koste van de prestaties van de organisatie?</p>
     <h3>Jouw keuzes naar onderliggende waarde</h3>
@@ -486,6 +495,9 @@ function rReport(){
   $('#repP').onchange=e=>{S.repP=e.target.value;save();render()};
   document.querySelectorAll('[data-r]').forEach(el=>el.oninput=()=>{R[el.dataset.r]=el.value;save();wc()});
   document.querySelectorAll('[data-o]').forEach(el=>el.oninput=()=>{O[el.dataset.o]=el.value;save();wc()});
+  S.history.forEach((h,i)=>bindTx('h'+i,()=>h.transcript,v=>{h.transcript=v}));
+  bindTx('session',()=>S.sessionTx,v=>{S.sessionTx=v});
+  bindAI(p);
   $('#view').onclick=()=>{S.repView=1;render();window.scrollTo(0,0)};
   function wc(){const t=reportHTML(p).replace(/<[^>]+>/g,' ');const w=t.split(/\s+/).filter(Boolean).length;$('#wc').textContent=`≈ ${w} woorden incl. bijlage · richtlijn 2–4 pagina's ≈ 1.000–2.000 woorden`}
   wc();
@@ -518,6 +530,184 @@ function showReport(p){
     const html=`<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word"><head><meta charset="utf-8"><title>${tx('title')}</title>
     <style>body{font-family:Calibri,Arial,sans-serif;font-size:11pt;line-height:115%}h1{font-size:16pt}h2{font-size:13pt;color:#0c6b58;margin-top:14pt}h3{font-size:11pt}p{margin:0 0 6pt}table{border-collapse:collapse;font-size:9pt}td,th{border:1px solid #ccc;padding:3pt;vertical-align:top}.hint{color:#999;font-style:italic}</style></head><body>${reportHTML(p)}</body></html>`;
     dl(`${tx('title').replace(/ /g,'_')}_${p.replace(/\W+/g,'_')}.doc`,'﻿'+html,'application/msword');
+  };
+}
+
+/* ---------- TRANSCRIPTIE ---------- */
+const SRC=window.SpeechRecognition||window.webkitSpeechRecognition;
+const TXS={rec:null,active:null,asr:{},busy:false};
+function txWidget(id,label){
+  return `<div class="txw" data-tx="${id}">
+   <div class="row" style="justify-content:space-between"><b class="small">${label}</b><span class="small muted" data-st></span></div>
+   <label class="small row" style="gap:6px;margin:6px 0"><input type="checkbox" data-consent ${S.consent?'checked':''}> Alle aanwezigen geven toestemming voor de opname</label>
+   <div class="row" style="gap:6px">
+     ${SRC?`<button class="btn sm" data-live>🎙 Live transcriberen</button>`:`<span class="small muted">Live transcriberen werkt in Chrome en Edge.</span>`}
+     <label class="btn sm">📁 Audiobestand transcriberen<input type="file" accept="audio/*,video/*" class="hidden" data-file></label>
+     <select data-model style="width:auto;font-size:13px;padding:5px 8px"><option value="base">Snel (kleiner model)</option><option value="small" ${S.asrModel==='small'?'selected':''}>Nauwkeuriger (groter model)</option></select>
+   </div>
+   <textarea data-text placeholder="De transcriptie verschijnt hier. Je kunt hem ook zelf aanvullen of plakken (bijv. uit Teams)." style="margin-top:8px;min-height:120px"></textarea>
+  </div>`;
+}
+function bindTx(id,get,set){
+  const box=document.querySelector(`[data-tx="${id}"]`);if(!box)return;
+  const ta=box.querySelector('[data-text]'),st=box.querySelector('[data-st]'),live=box.querySelector('[data-live]');
+  ta.value=get()||'';ta.oninput=()=>{set(ta.value);save()};
+  const cons=box.querySelector('[data-consent]');cons.onchange=()=>{S.consent=cons.checked;save()};
+  box.querySelector('[data-model]').onchange=e=>{S.asrModel=e.target.value;save()};
+  const need=()=>{if(!S.consent){st.textContent='Vink eerst toestemming aan.';st.style.color='var(--warn)';return false}return true};
+  if(TXS.active===id&&live){live.textContent='⏹ Stop opname';st.textContent='● Luistert…';st.style.color='var(--warn)'}
+  if(live) live.onclick=()=>{
+    if(TXS.active===id){stopLive();live.textContent='🎙 Live transcriberen';st.textContent='Gestopt';st.style.color='';return}
+    if(!need())return; stopLive();
+    const r=new SRC();r.lang=S.lang==='en'?'en-US':'nl-NL';r.continuous=true;r.interimResults=true;
+    r.onresult=e=>{let interim='';for(let i=e.resultIndex;i<e.results.length;i++){const res=e.results[i];if(res.isFinal){addText(id,get,set,res[0].transcript)}else interim+=res[0].transcript}
+      const s=document.querySelector(`[data-tx="${id}"] [data-st]`);if(s)s.textContent='● '+(interim?interim.slice(-60):'Luistert…')};
+    r.onerror=e=>{if(e.error==='not-allowed'){st.textContent='Microfoon geweigerd';TXS.active=null}};
+    r.onend=()=>{if(TXS.active===id){try{r.start()}catch(_){}}};
+    TXS.rec=r;TXS.active=id;r.start();live.textContent='⏹ Stop opname';st.textContent='● Luistert…';st.style.color='var(--warn)';
+  };
+  box.querySelector('[data-file]').onchange=async e=>{
+    const f=e.target.files[0];e.target.value='';if(!f||!need())return;
+    if(TXS.busy){st.textContent='Er loopt al een transcriptie.';return}
+    TXS.busy=true;st.style.color='';
+    try{
+      st.textContent='Audio inlezen…';
+      const ctx=new (window.AudioContext||window.webkitAudioContext)({sampleRate:16000});
+      const ab=await ctx.decodeAudioData(await f.arrayBuffer());
+      let pcm=ab.getChannelData(0);
+      if(ab.numberOfChannels>1){const r=ab.getChannelData(1);const m=new Float32Array(pcm.length);for(let i=0;i<m.length;i++)m[i]=(pcm[i]+r[i])/2;pcm=m}
+      const asr=await loadASR(S.asrModel||'base',m=>st.textContent=m);
+      const CH=16000*28,n=Math.ceil(pcm.length/CH),t0=Date.now();
+      for(let i=0;i<n;i++){
+        const left=i?Math.round((Date.now()-t0)/i*(n-i)/1000):null;
+        st.textContent=`Transcriberen ${i+1}/${n}${left!==null?` · nog ±${left>90?Math.round(left/60)+' min':left+' s'}`:''}`;
+        const out=await asr(pcm.subarray(i*CH,Math.min(pcm.length,(i+1)*CH)),{language:S.lang==='en'?'english':'dutch',task:'transcribe'});
+        addText(id,get,set,out.text);
+      }
+      st.textContent='✓ Klaar';ctx.close();
+    }catch(err){console.error(err);st.textContent='Mislukt: '+(err.message||err);st.style.color='var(--warn)'}
+    TXS.busy=false;
+  };
+}
+function addText(id,get,set,t){t=(t||'').trim();if(!t)return;const v=((get()||'').replace(/\s+$/,'')+' '+t).trim();set(v);save();
+  const b=document.querySelector(`[data-tx="${id}"] [data-text]`);if(b){b.value=v;b.scrollTop=b.scrollHeight}}
+function stopLive(){if(TXS.rec){TXS.active=null;try{TXS.rec.stop()}catch(_){}TXS.rec=null}}
+async function loadASR(size,msg){
+  if(TXS.asr[size])return TXS.asr[size];
+  msg('Spraakmodel laden (eerste keer: download, daarna in cache)…');
+  const T=await import('https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.8.1');
+  const prog=p=>{if(p.status==='progress'&&p.total)msg(`Model downloaden ${Math.round(p.loaded/p.total*100)}% (${p.file})`)};
+  let asr=null;
+  if(navigator.gpu){try{const ad=await navigator.gpu.requestAdapter();if(ad)asr=await T.pipeline('automatic-speech-recognition',`onnx-community/whisper-${size}`,{device:'webgpu',dtype:{encoder_model:'fp32',decoder_model_merged:'q4'},progress_callback:prog})}catch(e){console.warn('WebGPU niet gelukt, val terug op WASM',e);asr=null}}
+  if(!asr)asr=await T.pipeline('automatic-speech-recognition',`Xenova/whisper-${size}`,{dtype:'q8',progress_callback:prog});
+  TXS.asr[size]=asr;return asr;
+}
+
+/* ---------- AI-SCHRIJFHULP ---------- */
+const AIKEY='dilemmaGame.apikey';
+function buildPrompt(p){
+  const en=EN(),R=S.refl[p]||{},O=S.obs[p]||{},a=analyse(p);
+  const cut=(t,n)=>t&&t.length>n?t.slice(0,n)+' […]':(t||'');
+  const dl=a.H.map((h,i)=>{const d=D(h.n),c=h.choices[p],as=h.assess[p]||{};
+    return `--- Dilemma ${h.n} (ronde ${i+1}, dilemmahouder: ${h.holder}) ---
+Vraag: ${d.q}
+Opties: ${L.map(k=>`${k}) ${d.o[k]}`).join(' | ')}
+Keuzes eerste ronde: ${Object.entries(h.choices).map(([q,k])=>`${q}=${k}`).join(', ')}
+Mijn eerste keuze: ${c} (onderliggende waarde: ${fl(focusOf(h.n,c))}); mijn motivatie-notitie: ${h.motiv[p]||'–'}
+Mijn eindkeuze: ${as.final||c}${as.by?`; overtuigd door ${as.by}`:''}${as.arg?`; argument: ${as.arg}`:''}
+${p!==h.holder&&as.approve?`Mijn steun voor de dilemmahouder: ${as.approve}/5`:''}
+Eindkeuzes groep: ${Object.entries(h.assess).map(([q,x])=>`${q}=${x.final}`).join(', ')}
+Discussienotities: ${h.notes||'–'}
+Transcriptie discussie (zonder sprekerslabels, automatisch, kan fouten bevatten): ${cut(h.transcript,7000)||'–'}`}).join('\n\n');
+  return `Je bent een schrijfcoach. Schrijf een conceptversie van een individueel reflectieverslag voor student ${p}, in de ik-vorm, in het ${en?'Engels':'Nederlands'}.
+
+OPDRACHT (vak Health Care Management, Dilemma Game). Het verslag bevat onderdeel A t/m D, totaal 2–4 pagina's (circa 1.000–1.800 woorden, regelafstand 1,15):
+A. Beschrijf hoe ik met dilemma's omga en welk patroon dat oplevert in mijn keuzes (bijv. waardeer ik iedere medewerker gelijk, in hoeverre focus ik op het welzijn van de patiënt of het maatschappelijk belang ten koste van de prestaties van de organisatie).
+B. Hoe beïnvloedden argumenten van medestudenten mijn keuzes? Welk type argumenten liet mij van gedachten veranderen?
+C. Twee groepsgenoten schreven een observatie over mijn rol in het team, de besluitvorming en de discussies. Schrijf mijn reactie: wat herken ik (niet), is er overlap met eerdere vakken/ervaringen, in hoeverre ben ik het eens?
+D. Beschrijf één dilemma uit de casus St. Bernold's hospital: waarom is het een dilemma, hoe zou ik ermee omgaan, welke omstandigheden (bijv. tijdsdruk) beïnvloeden mijn gedrag?
+
+ACHTERGROND STUDENT (gebruik waar het past, niet geforceerd): ${R.bio||'–'}
+
+AUTOMATISCHE ANALYSE VAN HET SPEL
+${autoA(p,a)}
+${autoB(p,a)}
+
+GESPEELDE DILEMMA'S
+${dl||'–'}
+
+OBSERVATIES VAN GROEPSGENOTEN (onderdeel C; niet herschrijven, alleen op reageren)
+${Object.entries(O).filter(([,v])=>v).map(([x,v])=>`${x}: ${v}`).join('\n')||'–'}
+
+TRANSCRIPTIE HELE SESSIE (optioneel)
+${cut(S.sessionTx,12000)||'–'}
+
+EIGEN AANTEKENINGEN VAN DE STUDENT (verwerk deze; ze gaan voor)
+A: ${R.A||'–'}
+B: ${R.B||'–'}
+C: ${R.C||'–'}
+D – dilemma: ${R.D0||'–'}
+D – waarom dilemma: ${R.D1||'–'}
+D – aanpak: ${R.D2||'–'}
+D – omstandigheden: ${R.D3||'–'}
+
+SCHRIJFREGELS
+- Reflectief, persoonlijk en concreet; verwijs naar specifieke dilemma's (nummer en kern) en momenten uit de discussie.
+- Verzin niets: geen citaten, gebeurtenissen of observaties die niet in de gegevens staan. Transcripties hebben geen sprekerslabels; schrijf een uitspraak alleen aan iemand toe als dat ondubbelzinnig is.
+- Ontbreekt informatie (bijv. de casus St. Bernold's), schrijf dan [AANVULLEN: wat de student moet invullen] in plaats van te gokken.
+- Geen opsommingstekens; lopende alinea's.
+
+UITVOERFORMAAT (exact deze kopjes, verder niets ervoor of erna):
+### A
+### B
+### C
+### D1
+### D2
+### D3
+### D4
+(D1 = het dilemma uit de casus, D2 = waarom het een dilemma is, D3 = hoe ik ermee zou omgaan, D4 = welke omstandigheden mijn gedrag beïnvloeden)`;
+}
+function applyAI(p,text){
+  const parts={};const re=/^###\s*(A|B|C|D[1-4])\b[^\n]*\n([\s\S]*?)(?=^###\s*(?:A|B|C|D[1-4])\b|$(?![\s\S]))/gm;let m;
+  while((m=re.exec(text)))parts[m[1]]=m[2].trim();
+  const map={A:'A',B:'B',C:'C',D1:'D0',D2:'D1',D3:'D2',D4:'D3'};
+  const R=S.refl[p]=S.refl[p]||{};const n=Object.keys(parts).length;if(!n)return 0;
+  delete R._undo;R._undo=JSON.stringify(R);
+  Object.entries(parts).forEach(([k,v])=>{R[map[k]]=v});save();return n;
+}
+function aiCard(p){
+  const key=(()=>{try{return localStorage.getItem(AIKEY)||''}catch(e){return ''}})();
+  const R=S.refl[p]||{};
+  return `<div class="card"><h2>✨ AI-schrijfhulp: van transcriptie naar verslag</h2>
+   <p class="muted small">Bundelt je speldata, transcripties, observaties en aantekeningen tot een opdracht voor een AI-model, dat er een gestructureerd concept (A–D) van maakt. Lees het concept altijd kritisch na en maak het je eigen; vermeld het gebruik van AI zoals je opleiding dat voorschrijft.</p>
+   <div class="small"><b>Jouw achtergrond (optioneel, helpt bij A)</b></div>
+   <textarea data-r="bio" placeholder="Bijv. werktuigbouwkunde, lasinspectie, auditing, onderhoudsmanagement, docent, geestelijk verzorger…" style="min-height:60px">${esc(R.bio||'')}</textarea>
+   <h3 style="margin-top:14px">Route 1 · Gratis via Claude of ChatGPT</h3>
+   <div class="row"><button class="btn" id="cp">1. Kopieer opdracht</button><span class="small muted">Plak in claude.ai, kopieer het antwoord terug:</span></div>
+   <textarea id="aiPaste" placeholder="2. Plak hier het antwoord (met de kopjes ### A … ### D4)" style="margin-top:8px"></textarea>
+   <div class="row" style="margin-top:6px"><button class="btn" id="apply">3. Overnemen in verslag</button>${R._undo?'<button class="btn ghost sm" id="undo">Ongedaan maken</button>':''}<span class="small muted" id="aiSt"></span></div>
+   <h3 style="margin-top:16px">Route 2 · Direct met een eigen Anthropic API-sleutel</h3>
+   <div class="grid g2"><input type="password" id="akey" placeholder="sk-ant-…" value="${esc(key)}"><input type="text" id="amodel" value="${esc(S.aiModel||'claude-sonnet-5-5')}"></div>
+   <label class="small row" style="gap:6px;margin-top:6px"><input type="checkbox" id="kremember" ${key?'checked':''}> Sleutel onthouden op dit apparaat (nooit in de export; gebruik dit niet op een gedeeld apparaat)</label>
+   <div class="row" style="margin-top:8px"><button class="btn primary" id="gen">Concept genereren</button><span class="small muted" id="genSt"></span></div>
+  </div>`;
+}
+function bindAI(p){
+  $('#cp').onclick=async()=>{const t=buildPrompt(p);try{await navigator.clipboard.writeText(t);$('#aiSt').textContent=`✓ Gekopieerd (${t.length.toLocaleString('nl')} tekens)`}catch(e){$('#aiPaste').value=t;$('#aiSt').textContent='Kopiëren niet toegestaan: de opdracht staat nu in het vak; selecteer en kopieer handmatig.'}};
+  $('#apply').onclick=()=>{const n=applyAI(p,$('#aiPaste').value);if(n){render()}else $('#aiSt').textContent='Geen kopjes (### A …) gevonden.'};
+  const u=$('#undo');if(u)u.onclick=()=>{const R=S.refl[p];const o=JSON.parse(R._undo);S.refl[p]=o;delete o._undo;save();render()};
+  $('#amodel').onchange=e=>{S.aiModel=e.target.value.trim();save()};
+  $('#gen').onclick=async()=>{
+    const k=$('#akey').value.trim();if(!k){$('#genSt').textContent='Vul een API-sleutel in.';return}
+    try{$('#kremember').checked?localStorage.setItem(AIKEY,k):localStorage.removeItem(AIKEY)}catch(e){}
+    $('#gen').disabled=true;$('#genSt').textContent='Bezig met schrijven… (±30–60 s)';
+    try{
+      const r=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers:{'x-api-key':k,'anthropic-version':'2023-06-01','content-type':'application/json','anthropic-dangerous-direct-browser-access':'true'},
+        body:JSON.stringify({model:$('#amodel').value.trim(),max_tokens:6000,messages:[{role:'user',content:buildPrompt(p)}]})});
+      const j=await r.json();if(!r.ok)throw new Error((j.error&&j.error.message)||r.status);
+      const text=j.content.filter(c=>c.type==='text').map(c=>c.text).join('\n');
+      const n=applyAI(p,text);if(n)render();else{$('#aiPaste').value=text;$('#genSt').textContent='Antwoord ontvangen maar zonder kopjes; staat in het plakvak.'}
+    }catch(e){$('#genSt').textContent='Mislukt: '+e.message;$('#gen').disabled=false}
   };
 }
 
