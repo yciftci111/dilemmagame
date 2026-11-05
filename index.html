@@ -118,11 +118,11 @@ const DILEMMAS = [{"n": 1, "q": "In the hospital department you manage, a physic
 const L = ['A','B','C','D'];
 const KEY = 'dilemmaGame.v1';
 let S = load() || fresh();
-S.lang=S.lang||'nl';S.obs=S.obs||{};S.refl=S.refl||{};
+S.lang=S.lang||'nl';S.plan=S.plan||{};S.obs=S.obs||{};S.refl=S.refl||{};
 let view = S.players.length >= 2 ? 'play' : 'setup';
 let ui = {picker:null, revealIdx:0, timer:null, timerEnd:0};
 
-function fresh(){return {players:[], roundsPerPlayer:2, holderIdx:0, current:null, history:[], lang:'nl', obs:{}, refl:{}}}
+function fresh(){return {players:[], roundsPerPlayer:2, holderIdx:0, current:null, history:[], plan:{}, lang:'nl', obs:{}, refl:{}}}
 function load(){try{return JSON.parse(localStorage.getItem(KEY))}catch(e){return null}}
 function save(){try{localStorage.setItem(KEY, JSON.stringify(S))}catch(e){}}
 const $ = s => document.querySelector(s);
@@ -171,6 +171,7 @@ function rSetup(){
     if(names.length<2){alertBox('Vul minstens twee namen in.');return}
     if(new Set(names).size!==names.length){alertBox('Gebruik unieke namen.');return}
     S.players=names; S.roundsPerPlayer=Math.max(1,Math.min(5,+$('#rpp').value||2));
+    if(!S.plan||!Object.keys(S.plan).length)dealPlan(); else syncPlan();
     save(); go('play');
   };
   const r=$('#resetBtn'); if(r) r.onclick=()=>{ if(r.dataset.c){const l=S.lang;S=fresh();S.lang=l;save();render()} else {r.dataset.c=1;r.textContent='Klik nogmaals om te bevestigen'} };
@@ -191,7 +192,7 @@ function rPlay(){
   <div class="steps">${STEPS.map((s,i)=>`<div class="step ${i===stepI?'on':''} ${i<stepI?'done':''}"><b>Stap ${STEPNO[i]}</b>${s}</div>`).join('')}</div>`;
   if(doneN>=target() && !c){
     $('#app').innerHTML=head+`<div class="card"><h1>Spel compleet</h1><p class="muted">Iedereen is ${S.roundsPerPlayer}× dilemmahouder geweest.</p><div class="row"><button class="btn primary" onclick="go('results')">Bekijk resultaten</button><button class="btn" id="more">Toch nog een ronde</button></div></div>`;
-    $('#more').onclick=()=>{S.roundsPerPlayer++;save();render()};return;
+    $('#more').onclick=()=>{S.roundsPerPlayer++;syncPlan();save();render()};return;
   }
   if(!c) return pDraw(head);
   [null,pChoose,pReveal,pDiscuss,pAssess][c.step](head);
@@ -202,26 +203,64 @@ function dilemmaCard(n,interactive){
    <p class="dq" style="margin:12px 0 4px">${esc(d.q)}</p>
    ${L.map(k=>`<div class="opt"><div class="let l${k}">${k}</div><div>${esc(d.o[k])}</div></div>`).join('')}</div>`;
 }
-function pDraw(head){
-  const free=DILEMMAS.map(d=>d.n).filter(n=>!usedNums().includes(n));
-  $('#app').innerHTML=head+`<div class="card" style="text-align:center">
-    <h1>${esc(holder())}, kies een dilemma</h1>
-    <p class="muted">Trek een willekeurig nummer tussen 1 en 50 (al gespeelde dilemma's worden overgeslagen) of kies zelf een nummer.</p>
-    <div class="big" id="rollNum">?</div>
-    <div class="row" style="justify-content:center;margin-top:14px">
-      <button class="btn primary" id="roll">🎲 Willekeurig trekken</button>
-      <input type="number" id="manual" min="1" max="50" placeholder="1–50" style="width:90px">
-      <button class="btn" id="pick">Kies dit nummer</button>
-    </div>
-    <p class="muted small" style="margin-top:14px">Nog ${free.length} ongespeelde dilemma's.</p>
-  </div>`;
-  $('#roll').onclick=()=>{
-    const el=$('#rollNum');let t=0;$('#roll').disabled=true;
-    const iv=setInterval(()=>{el.textContent=1+Math.floor(Math.random()*50);if(++t>14){clearInterval(iv);const n=free[Math.floor(Math.random()*free.length)];el.textContent=n;setTimeout(()=>start(n),500)}},60);
-  };
-  $('#pick').onclick=()=>{const n=+$('#manual').value;if(n>=1&&n<=50)start(n)};
+/* ---------- WILLEKEURIGE VERDELING ---------- */
+const shuffle=a=>{a=a.slice();for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]]}return a};
+const planned=()=>Object.values(S.plan||{}).flat();
+const freePool=()=>DILEMMAS.map(d=>d.n).filter(n=>!usedNums().includes(n)&&!planned().includes(n));
+function dealPlan(){
+  S.plan={};const pool=shuffle(DILEMMAS.map(d=>d.n).filter(n=>!usedNums().includes(n)));
+  S.players.forEach(p=>{const need=Math.max(0,S.roundsPerPlayer-S.history.filter(h=>h.holder===p).length);S.plan[p]=pool.splice(0,need)});
+  save();
 }
-function start(n){S.current={n,holder:holder(),step:1,choices:{},motiv:{},assess:{}};ui.revealIdx=0;ui.picker=null;save();render()}
+function syncPlan(){ // spelers of aantal rondes gewijzigd: aanvullen/inkorten zonder dubbele nummers
+  S.plan=S.plan||{};Object.keys(S.plan).forEach(p=>{if(!S.players.includes(p))delete S.plan[p]});
+  S.players.forEach(p=>{const need=Math.max(0,S.roundsPerPlayer-S.history.filter(h=>h.holder===p).length);
+    let l=(S.plan[p]||[]).filter(n=>!usedNums().includes(n)).slice(0,need);S.plan[p]=l;
+    while(l.length<need){const f=freePool();if(!f.length)break;l.push(f[Math.floor(Math.random()*f.length)])}});
+  save();
+}
+function swapPlan(p,n){const f=freePool();if(!f.length)return null;const r=f[Math.floor(Math.random()*f.length)];const l=S.plan[p];l[l.indexOf(n)]=r;save();return r}
+function pDraw(head){
+  syncPlan();
+  const h=holder(), mine=S.plan[h]||[], next=mine[0];
+  const left=DILEMMAS.length-usedNums().length;
+  $('#app').innerHTML=head+`<div class="card" style="text-align:center">
+    <h1>${esc(h)}, jouw dilemma</h1>
+    ${next?`<p class="muted">Willekeurig voor jou getrokken. Een dilemma komt in dit spel maar één keer voor.</p>
+    <div class="big" id="rollNum">${next}</div>
+    <p class="small muted" style="margin:4px auto 0;max-width:620px">${esc(D(next).q.slice(0,160))}${D(next).q.length>160?'…':''}</p>
+    <div class="row" style="justify-content:center;margin-top:14px">
+      <button class="btn primary" id="go">Start dilemma ${next}</button>
+      <button class="btn" id="swap">🎲 Ander dilemma trekken</button>
+    </div>`:`<p class="muted">Geen dilemma meer toegewezen aan ${esc(h)}.</p>
+    <div class="big" id="rollNum">?</div>
+    <div class="row" style="justify-content:center;margin-top:14px"><button class="btn primary" id="roll" ${freePool().length?'':'disabled'}>🎲 Willekeurig trekken</button></div>`}
+    <details style="margin-top:16px"><summary class="small muted" style="cursor:pointer">Zelf een nummer kiezen</summary>
+      <div class="row" style="justify-content:center;margin-top:8px"><input type="number" id="manual" min="1" max="50" placeholder="1–50" style="width:90px"><button class="btn sm" id="pick">Kies dit nummer</button></div>
+      <p class="small" id="pickMsg" style="color:var(--warn)"></p></details>
+    <p class="muted small" style="margin-top:10px">Nog ${left} ongespeelde dilemma's · ${freePool().length} niet toegewezen.</p>
+  </div>${planCard()}`;
+  const anim=(n,cb)=>{const el=$('#rollNum');let t=0;const iv=setInterval(()=>{el.textContent=1+Math.floor(Math.random()*50);if(++t>12){clearInterval(iv);el.textContent=n;setTimeout(cb,450)}},55)};
+  const g=$('#go');if(g)g.onclick=()=>start(next);
+  const sw=$('#swap');if(sw)sw.onclick=()=>{const r=swapPlan(h,next);if(r){sw.disabled=true;anim(r,render)}else sw.textContent='Geen vrije dilemma\'s meer'};
+  const ro=$('#roll');if(ro)ro.onclick=()=>{const f=freePool();const n=f[Math.floor(Math.random()*f.length)];ro.disabled=true;anim(n,()=>start(n))};
+  $('#pick').onclick=()=>{const n=+$('#manual').value;
+    if(!(n>=1&&n<=50)){$('#pickMsg').textContent='Kies een nummer van 1 t/m 50.';return}
+    if(usedNums().includes(n)){$('#pickMsg').textContent=`Dilemma ${n} is al gespeeld.`;return}
+    const owner=Object.keys(S.plan).find(p=>S.plan[p].includes(n)&&p!==h);
+    if(owner){$('#pickMsg').textContent=`Dilemma ${n} is toegewezen aan ${owner}. Kies een ander nummer.`;return}
+    start(n)};
+  bindPlan();
+}
+function planCard(){
+  return `<div class="card"><div class="row" style="justify-content:space-between"><h2 style="margin:0">Verdeling van de dilemma's</h2>
+    <button class="btn sm" id="redeal">🎲 Alles opnieuw verdelen</button></div>
+    <table style="margin-top:10px"><tr><th>Speler</th><th>Gespeeld</th><th>Nog te spelen</th></tr>
+    ${S.players.map(p=>`<tr><td>${esc(p)}</td><td>${S.history.filter(x=>x.holder===p).map(x=>x.n).join(', ')||'–'}</td><td>${(S.plan[p]||[]).join(', ')||'–'}</td></tr>`).join('')}</table>
+    <p class="small muted" style="margin:8px 0 0">Elk nummer komt maar één keer voor. Opnieuw verdelen verandert alleen de dilemma's die nog niet gespeeld zijn.</p></div>`;
+}
+function bindPlan(){const r=$('#redeal');if(r)r.onclick=()=>{if(r.dataset.c){dealPlan();render()}else{r.dataset.c=1;r.textContent='Klik nogmaals om te bevestigen'}}}
+function start(n){Object.keys(S.plan||{}).forEach(p=>{S.plan[p]=S.plan[p].filter(x=>x!==n)});S.current={n,holder:holder(),step:1,choices:{},motiv:{},assess:{}};ui.revealIdx=0;ui.picker=null;save();render()}
 
 function pChoose(head){
   const c=S.current, done=Object.keys(c.choices);
@@ -384,7 +423,7 @@ function rLibrary(){
      <div class="small muted">${usedNums().includes(d.n)?'✓ gespeeld':''}</div>
      <div class="hidden det">${L.map(k=>`<div class="opt"><div class="let l${k}">${k}</div><div>${esc(d.o[k])}</div></div>`).join('')}
       <p class="small muted">${esc(d.q)}</p>
-      ${!S.current&&S.players.length>=2&&!usedNums().includes(d.n)?`<button class="btn sm primary" data-play="${d.n}">Speel dit dilemma</button>`:''}</div></div>`).join('');
+      ${!S.current&&S.players.length>=2&&!usedNums().includes(d.n)&&!Object.entries(S.plan||{}).some(([q,l])=>q!==holder()&&l.includes(d.n))?`<button class="btn sm primary" data-play="${d.n}">Speel dit dilemma</button>`:''}</div></div>`).join('');
     document.querySelectorAll('.it').forEach(it=>it.onclick=e=>{const pb=e.target.closest('[data-play]');if(pb){start(+pb.dataset.play);go('play');return}it.querySelector('.det').classList.toggle('hidden')});
   };
   $('#q').oninput=draw;draw();
